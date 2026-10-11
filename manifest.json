@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "VTOP Survey Bypasser",
+  "version": "1.0.0",
+  "description": "Automatically fills and submits student feedback/survey forms on the VTOP portal with the highest rating.",
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://vtop.vit.ac.in/*",
+    "https://vtopcc.vit.ac.in/*",
+    "https://*.vit.ac.in/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_title": "VTOP Survey Bypasser"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://vtop.vit.ac.in/*",
+        "https://vtopcc.vit.ac.in/*",
+        "https://*.vit.ac.in/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
