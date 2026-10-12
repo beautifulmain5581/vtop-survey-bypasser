@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "VTOP Survey Bypasser",
-  "version": "1.0.0",
-  "description": "Automatically fills and submits student feedback/survey forms on the VTOP portal with the highest rating.",
+  "version": "1.1.0",
+  "description": "Automatically fills and submits student feedback/survey forms on the VTOP portal with your chosen star rating.",
   "background": {
     "service_worker": "background.js"
   },

@@ -7,7 +7,7 @@
  *  - Uses a MutationObserver + periodic polling hybrid to detect when
  *    VTOP's asynchronously rendered tables are ready.
  *  - Scenario A: Course List page → clicks the first red "Post" button.
- *  - Scenario B: Feedback Form page → selects 5-star rating for every
+ *  - Scenario B: Feedback Form page → selects chosen star rating (1-5) for every
  *    row, skips textareas, then clicks the green Submit button.
  *
  * Storage keys used:
@@ -15,6 +15,7 @@
  *  autoFillComplete {boolean}  Set true when all feedback is done
  *  submittedCount   {number}   Incremented after each successful submit
  *  pendingCount     {number}   Updated on the course-list page
+ *  targetRating     {number}   Selected star rating (1-5, defaults to 5)
  */
 
 'use strict';
@@ -36,7 +37,7 @@ const POLL_INTERVAL_MS = 500;
 (function init() {
   // ── Triggered on page load (handles post-navigation cycles) ──────────────
   chrome.storage.local.get(
-    ['autoFillActive', 'submittedCount', 'pendingCount'],
+    ['autoFillActive', 'submittedCount', 'pendingCount', 'targetRating'],
     (state) => {
       if (chrome.runtime.lastError) {
         console.warn('[VTOP-Auto] Storage read error:', chrome.runtime.lastError);
@@ -120,26 +121,13 @@ function waitForPageReady(callback) {
 }
 
 /**
- * Returns true when either a "Post" / "Posted" button OR a Submit
- * button is present — meaning VTOP has finished rendering its tables.
+ * Returns true when either course buttons ("Post" / "Posted") OR the
+ * feedback form Submit button is present in the DOM.
  */
 function isPageReady() {
-  // Scenario A indicator: the course feedback table with Post buttons
-  const hasCourseList = document.querySelector(
-    'input[value="Post"], button[value="Post"], ' +
-    'input[value="Posted"], button[value="Posted"]'
-  );
-  if (hasCourseList) return true;
-
-  // Sometimes rendered as <a> tags or <td> containing text "Post"
-  const allButtons = [...document.querySelectorAll('button, input[type="button"], input[type="submit"], a')];
-  const hasPostText = allButtons.some(el => el.textContent.trim() === 'Post' || el.value === 'Post');
-  if (hasPostText) return true;
-
-  // Scenario B indicator: the Submit button on the feedback form
-  const hasSubmit = findSubmitButton();
-  if (hasSubmit) return true;
-
+  if (findPostButtons().length > 0) return true;
+  if (findPostedElements().length > 0) return true;
+  if (findSubmitButton()) return true;
   return false;
 }
 
@@ -150,12 +138,15 @@ function isPageReady() {
  * and delegates accordingly.
  */
 function onPageReady() {
-  // Re-read storage in case the user stopped the automation while we waited
-  chrome.storage.local.get(['autoFillActive'], (state) => {
+  // Re-read storage in case the user stopped the automation or changed rating while we waited
+  chrome.storage.local.get(['autoFillActive', 'targetRating'], (state) => {
     if (!state.autoFillActive) return;
 
+    const rawRating = state.targetRating != null ? Number(state.targetRating) : 5;
+    const targetRating = Math.min(5, Math.max(1, isNaN(rawRating) ? 5 : Math.round(rawRating)));
+
     const submitBtn = findSubmitButton();
-    if (submitBtn) handleFeedbackForm(submitBtn);
+    if (submitBtn) handleFeedbackForm(submitBtn, targetRating);
     else handleCourseList();
   });
 }
@@ -181,7 +172,10 @@ function handleCourseList() {
     }, () => {
       // Show a visible notification overlay instead of alert()
       // so we don't block the page inside a content script context
-      showCompletionBanner(postedCount);
+      chrome.storage.local.get(['targetRating'], (state) => {
+        const rating = Number(state.targetRating) || 5;
+        showCompletionBanner(postedCount, rating);
+      });
     });
     return;
   }
@@ -208,8 +202,8 @@ function handleCourseList() {
 }
 
 /**
- * Returns all clickable elements whose visible text is exactly "Post"
- * (not "Posted"). Checks buttons, input[type=button/submit], and <a> tags.
+ * Returns all clickable elements whose visible text is "Post" (case-insensitive,
+ * not "Posted"). Checks buttons, inputs, and links.
  */
 function findPostButtons() {
   const candidates = [
@@ -224,8 +218,8 @@ function findPostButtons() {
     if (el.disabled) return false;
     if (el.offsetWidth === 0 && el.offsetHeight === 0) return false;
 
-    const text = (el.value || el.textContent || '').trim();
-    return text === 'Post';
+    const text = (el.value || el.textContent || '').trim().toLowerCase();
+    return text === 'post';
   });
 }
 
@@ -239,64 +233,100 @@ function findPostedElements() {
     ...document.querySelectorAll('input[type="submit"]'),
     ...document.querySelectorAll('span'),
     ...document.querySelectorAll('td'),
+    ...document.querySelectorAll('div'),
+    ...document.querySelectorAll('a'),
   ];
 
   return candidates.filter(el => {
     // Ignore hidden elements
     if (el.offsetWidth === 0 && el.offsetHeight === 0) return false;
 
-    const text = (el.value || el.textContent || '').trim();
-    return text === 'Posted';
+    const text = (el.value || el.textContent || '').trim().toLowerCase();
+    return text === 'posted';
   });
 }
 
 // ─── Scenario B: Feedback Form ────────────────────────────────────────────────
 
 /**
- * Selects the 5th star (highest rating) for every rating row in all
+ * Finds the radio input that best matches the desired rating (1 to 5).
+ *
+ * Strategy order:
+ *  1. Exact numeric value match (e.g. value="4" or value="4.0")
+ *  2. Closest numeric value if on a different scale (e.g. 1-3 or 1-10)
+ *  3. Positional fallback by index if values are non-numeric strings
+ *     (e.g., maps rating 1..5 across available radios from 0 to length - 1)
+ *
+ * @param {HTMLInputElement[]} radios
+ * @param {number} targetRating
+ * @returns {HTMLInputElement|null}
+ */
+function findTargetRadio(radios, targetRating = 5) {
+  if (!radios || radios.length === 0) return null;
+
+  // 1. Exact numeric value match
+  for (const r of radios) {
+    const val = parseFloat(r.value);
+    if (!isNaN(val) && val === targetRating) {
+      return r;
+    }
+  }
+
+  // 2. Closest numeric value
+  const numericList = radios
+    .map(r => ({ radio: r, val: parseFloat(r.value) }))
+    .filter(item => !isNaN(item.val));
+
+  if (numericList.length > 0) {
+    numericList.sort((a, b) => Math.abs(a.val - targetRating) - Math.abs(b.val - targetRating));
+    return numericList[0].radio;
+  }
+
+  // 3. Positional index fallback: map 1..5 across available radios
+  const targetIndex = Math.min(Math.max(targetRating - 1, 0), radios.length - 1);
+  return radios[targetIndex] || null;
+}
+
+/**
+ * Selects the requested star rating (1-5) for every rating row in all
  * feedback tables, then clicks the Submit button.
  *
- * VTOP renders stars as one of several patterns observed in the screenshots:
- *   1. <input type="radio" value="5" name="..."> (classic radio)
- *   2. <input type="radio" value="5" id="...">
- *   3. Star-icon elements inside <label> / <td> that wrap radio inputs
- *   4. <span> or <i> elements with star classes (e.g. fa-star, glyphicon-star)
- *
- * Strategy: We try all known patterns in order, then fall back to a
- * table-row approach to ensure we never miss a rating.
- *
- * @param {Element} submitBtn  The green Submit button element.
+ * @param {Element} submitBtn       The green Submit button element.
+ * @param {number}  [targetRating=5]  Desired rating from 1 to 5.
  */
-function handleFeedbackForm(submitBtn) {
+function handleFeedbackForm(submitBtn, targetRating = 5) {
   // Shared deduplication Set — tracks radio `name` attributes already
   // processed so Strategies 1, 2, and 3 never double-click the same row.
-  // Double-clicking a radio can fire change events twice and looks bot-like.
   const processedNames = new Set();
 
-  // ── Strategy 1: Standard radio inputs with value="5" ────────────
-  // Most common VTOP rendering: plain <input type="radio" value="5">
-  const radioFives = document.querySelectorAll(
-    'input[type="radio"][value="5"], input[type="radio"][value="5.0"]'
+  // ── Strategy 1: Standard radio inputs matching target rating ────
+  // Most common VTOP rendering: plain <input type="radio" value="N"> or "N.0"
+  const targetStr = String(targetRating);
+  const targetFloatStr = targetRating.toFixed(1);
+  const targetRadios = document.querySelectorAll(
+    `input[type="radio"][value="${targetStr}"], input[type="radio"][value="${targetFloatStr}"]`
   );
-  radioFives.forEach(radio => {
-    if (radio.checked || isInsideTextareaRow(radio)) return;
+  targetRadios.forEach(radio => {
+    if (isInsideTextareaRow(radio)) return;
     const key = radio.name || radio.id;
     if (!key || processedNames.has(key)) return;
     processedNames.add(key);
-    radio.click();
-    radio.checked = true;
+
+    if (!radio.checked) {
+      radio.click();
+      radio.checked = true;
+      radio.dispatchEvent(new Event('change', { bubbles: true }));
+    }
   });
 
   // ── Strategy 2: Star label/span click (CSS/JS star widgets) ──────
-  selectStarsViaLabels(processedNames);
+  selectStarsViaLabels(processedNames, targetRating);
 
   // ── Strategy 3: Table-row fallback ───────────────────────────────
-  selectViaTableRows(processedNames);
+  selectViaTableRows(processedNames, targetRating);
 
   // Wait for click events to register in VTOP's JS framework,
   // then submit. The delay also mimics a brief human review pause.
-  // NOTE: This function never writes to textareas — only radio inputs are
-  // clicked. Suggestion rows are skipped by isInsideTextareaRow().
   setTimeout(() => {
     chrome.storage.local.get(['submittedCount'], (state) => {
       const newCount = (state.submittedCount || 0) + 1;
@@ -304,11 +334,9 @@ function handleFeedbackForm(submitBtn) {
         submitBtn.click();
 
         // ── AJAX / SPA fallback ───────────────────────────────────────────────
-        // If VTOP returns to the course list without a full page reload,
-        // watch for Post buttons to reappear and continue the loop.
-        // If it IS a full reload, this observer is gc'd and init() handles it.
+        // Wait for course list or next form to render (avoids 20s hang on completion)
         setTimeout(() => {
-          waitForElement(() => findPostButtons().length > 0, onPageReady);
+          waitForElement(() => isPageReady(), onPageReady);
         }, 300);
       });
     });
@@ -316,10 +344,11 @@ function handleFeedbackForm(submitBtn) {
 }
 
 /**
- * Clicks the highest-rated label for each radio group (CSS/JS star widgets).
- * @param {Set<string>} processedNames  Shared dedup guard from handleFeedbackForm.
+ * Clicks the target-rated label for each radio group (CSS/JS star widgets).
+ * @param {Set<string>} processedNames   Shared dedup guard from handleFeedbackForm.
+ * @param {number}      [targetRating=5]
  */
-function selectStarsViaLabels(processedNames) {
+function selectStarsViaLabels(processedNames, targetRating = 5) {
   // Group radio buttons by their `name` attribute
   const radioGroups = {};
   document.querySelectorAll('input[type="radio"]').forEach(radio => {
@@ -332,14 +361,7 @@ function selectStarsViaLabels(processedNames) {
   Object.values(radioGroups).forEach(radios => {
     if (radios.length < 2) return; // Not a rating group
 
-    // Find the radio with the highest numeric value
-    let best = null;
-    let bestVal = -Infinity;
-    radios.forEach(r => {
-      const v = parseFloat(r.value);
-      if (!isNaN(v) && v > bestVal) { bestVal = v; best = r; }
-    });
-
+    const best = findTargetRadio(radios, targetRating);
     if (!best || best.checked) return;
     if (isInsideTextareaRow(best)) return;
 
@@ -348,17 +370,23 @@ function selectStarsViaLabels(processedNames) {
     processedNames.add(key);
 
     const label = document.querySelector(`label[for="${best.id}"]`);
-    if (label) label.click();
-    else { best.click(); best.checked = true; }
+    if (label) {
+      label.click();
+    } else {
+      best.click();
+      best.checked = true;
+      best.dispatchEvent(new Event('change', { bubbles: true }));
+    }
   });
 }
 
 /**
  * Table-row fallback: iterates <tr> elements in feedback tables and
- * clicks the highest-value radio in the Rating column.
- * @param {Set<string>} processedNames  Shared dedup guard from handleFeedbackForm.
+ * clicks the target-value radio in the Rating column.
+ * @param {Set<string>} processedNames   Shared dedup guard from handleFeedbackForm.
+ * @param {number}      [targetRating=5]
  */
-function selectViaTableRows(processedNames) {
+function selectViaTableRows(processedNames, targetRating = 5) {
   // Target only tables that have a "Rating" or "Statement" header
   const tables = [...document.querySelectorAll('table')].filter(t =>
     t.textContent.toLowerCase().includes('rating') ||
@@ -373,14 +401,7 @@ function selectViaTableRows(processedNames) {
       const radios = [...row.querySelectorAll('input[type="radio"]')];
       if (radios.length === 0) return;
 
-      // Pick the highest-value radio; fall back to the last one
-      let best = null, bestVal = -Infinity;
-      radios.forEach(r => {
-        const v = parseFloat(r.value);
-        if (!isNaN(v) && v > bestVal) { bestVal = v; best = r; }
-      });
-      if (!best) best = radios[radios.length - 1];
-
+      const best = findTargetRadio(radios, targetRating);
       if (!best || best.checked) return;
 
       const key = best.name || best.id;
@@ -388,8 +409,13 @@ function selectViaTableRows(processedNames) {
       processedNames.add(key);
 
       const label = document.querySelector(`label[for="${best.id}"]`);
-      if (label) label.click();
-      else { best.click(); best.checked = true; }
+      if (label) {
+        label.click();
+      } else {
+        best.click();
+        best.checked = true;
+        best.dispatchEvent(new Event('change', { bubbles: true }));
+      }
     });
   });
 }
@@ -410,30 +436,24 @@ function isInsideTextareaRow(el) {
 // ─── Submit button detection ──────────────────────────────────────────────────
 
 /**
- * Finds the green Submit button on the feedback form.
- * VTOP's Submit button can appear as:
- *   <input type="submit" value="Submit">
- *   <button type="submit">Submit</button>
- *   <button class="btn btn-success">Submit</button>
- *   <input type="button" value="Submit">
- *
- * We intentionally do NOT match the "Back" button.
+ * Finds the Submit button on the feedback form (case-insensitive).
  *
  * @returns {Element|null}
  */
 function findSubmitButton() {
-  // Prefer explicit submit inputs/buttons with value "Submit"
-  const submitInput = document.querySelector(
-    'input[type="submit"][value="Submit"], input[type="button"][value="Submit"]'
-  );
-  if (submitInput) return submitInput;
+  const candidates = [
+    ...document.querySelectorAll('input[type="submit"]'),
+    ...document.querySelectorAll('input[type="button"]'),
+    ...document.querySelectorAll('button'),
+  ];
 
-  // Fallback: <button> whose trimmed text is exactly "Submit"
-  const allButtons = [...document.querySelectorAll('button')];
-  const submitBtn = allButtons.find(b => b.textContent.trim() === 'Submit');
-  if (submitBtn) return submitBtn;
+  return candidates.find(el => {
+    if (el.disabled) return false;
+    if (el.offsetWidth === 0 && el.offsetHeight === 0) return false;
 
-  return null;
+    const text = (el.value || el.textContent || '').trim().toLowerCase();
+    return text === 'submit';
+  }) || null;
 }
 
 // ─── Completion banner ────────────────────────────────────────────────────────
@@ -443,11 +463,14 @@ function findSubmitButton() {
  * Avoids using window.alert() which blocks script execution inside
  * content scripts on some browsers.
  *
- * @param {number} totalPosted  Number of forms already in "Posted" state.
+ * @param {number} totalPosted   Number of forms already in "Posted" state.
+ * @param {number} [targetRating=5]
  */
-function showCompletionBanner(totalPosted) {
+function showCompletionBanner(totalPosted, targetRating = 5) {
   // Remove any existing banner
   document.getElementById('vtop-auto-banner')?.remove();
+
+  const safeRating = Math.min(5, Math.max(1, Math.round(Number(targetRating) || 5)));
 
   const banner = document.createElement('div');
   banner.id = 'vtop-auto-banner';
@@ -456,7 +479,7 @@ function showCompletionBanner(totalPosted) {
       <div id="vtop-auto-icon">✅</div>
       <div>
         <strong>Feedback Automation Complete!</strong><br>
-        <small>All available subjects have been submitted successfully.</small>
+        <small>All available subjects submitted with ${safeRating}★ rating.</small>
       </div>
       <button id="vtop-auto-close" title="Dismiss">✕</button>
     </div>
@@ -502,15 +525,18 @@ function showCompletionBanner(totalPosted) {
     borderRadius:'6px',
   });
 
-  // Inject keyframe animation
-  const style = document.createElement('style');
-  style.textContent = `
-    @keyframes vtopSlideIn {
-      from { opacity: 0; transform: translateY(-20px) scale(0.95); }
-      to   { opacity: 1; transform: translateY(0)    scale(1);    }
-    }
-  `;
-  document.head.appendChild(style);
+  // Inject keyframe animation once
+  if (!document.getElementById('vtop-auto-style')) {
+    const style = document.createElement('style');
+    style.id = 'vtop-auto-style';
+    style.textContent = `
+      @keyframes vtopSlideIn {
+        from { opacity: 0; transform: translateY(-20px) scale(0.95); }
+        to   { opacity: 1; transform: translateY(0)    scale(1);    }
+      }
+    `;
+    document.head.appendChild(style);
+  }
   document.body.appendChild(banner);
 
   // Close on button click

@@ -6,7 +6,8 @@ A lightweight, automated Chrome Extension designed to complete the mandatory fac
 
 ## ⚡ Features
 
-- **One-Click Automation**: Automatically rates all questions with 5 stars.
+- **Customizable Rating**: Choose your preferred rating (1 to 5 stars) directly in the popup interface, defaulting to 5 stars.
+- **One-Click Automation**: Automatically fills and submits feedback for every row with your chosen rating.
 - **Intelligent Field Handling**: Skips open-ended suggestion/comment boxes to keep feedback valid without injecting dummy text.
 - **Auto-Navigation**: Automatically moves through all pending course surveys until every single one is submitted.
 - **Privacy First**: Fully client-side. No trackers, no analytics, no external servers, and zero data collected.

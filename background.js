@@ -7,7 +7,7 @@
  * automatically disabled — no manual "Stop" required.
  */
 
-const VTOP_HOSTNAME_PATTERN = /\.vit\.ac\.in$/i;
+const VTOP_HOSTNAME_PATTERN = /(^|\.)vit\.ac\.in$/i;
 
 /**
  * Checks if a URL belongs to the VTOP domain.

@@ -150,6 +150,117 @@
       letter-spacing: 0.6px;
     }
 
+    /* ── Rating Selector ── */
+    .rating-card {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      padding: 12px 14px;
+      margin-bottom: 16px;
+      transition: border-color 0.25s ease, background 0.25s ease;
+    }
+    .rating-card:hover {
+      border-color: rgba(99, 102, 241, 0.35);
+    }
+    .rating-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .rating-label {
+      font-size: 11px;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      font-weight: 600;
+    }
+    .rating-badge {
+      font-size: 11px;
+      font-weight: 600;
+      color: #fbbf24;
+      background: rgba(251, 191, 36, 0.12);
+      border: 1px solid rgba(251, 191, 36, 0.25);
+      padding: 2px 8px;
+      border-radius: 12px;
+      letter-spacing: 0.2px;
+      transition: all 0.2s ease;
+    }
+    .star-picker {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 6px 10px;
+      background: rgba(0, 0, 0, 0.25);
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.04);
+    }
+    .star-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    .star-btn:hover {
+      transform: scale(1.22);
+    }
+    .star-btn:active {
+      transform: scale(0.95);
+    }
+    .star-icon {
+      width: 25px;
+      height: 25px;
+      fill: #374151;
+      transition: fill 0.2s ease, filter 0.2s ease;
+      pointer-events: none;
+    }
+    .star-btn.active .star-icon,
+    .star-btn.hovered .star-icon {
+      fill: #fbbf24;
+      filter: drop-shadow(0 0 6px rgba(251, 191, 36, 0.55));
+    }
+    .star-btn.pop {
+      animation: starPop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    @keyframes starPop {
+      0%   { transform: scale(1); }
+      50%  { transform: scale(1.3); }
+      100% { transform: scale(1); }
+    }
+    .rating-presets {
+      display: flex;
+      gap: 6px;
+      margin-top: 9px;
+      justify-content: center;
+    }
+    .preset-tag {
+      font-size: 10px;
+      font-weight: 600;
+      color: #9ca3af;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 3px 9px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      letter-spacing: 0.3px;
+    }
+    .preset-tag:hover {
+      color: #e0e0f0;
+      border-color: rgba(99, 102, 241, 0.4);
+      background: rgba(99, 102, 241, 0.1);
+    }
+    .preset-tag.active {
+      color: #fbbf24;
+      border-color: rgba(251, 191, 36, 0.4);
+      background: rgba(251, 191, 36, 0.12);
+    }
+
     /* ── Buttons ── */
     .btn-start {
       width: 100%;
@@ -257,6 +368,36 @@
       </div>
     </div>
 
+    <!-- Rating Selector Card -->
+    <div class="rating-card" id="ratingCard">
+      <div class="rating-header">
+        <span class="rating-label">Rating Preference</span>
+        <span class="rating-badge" id="ratingBadge">5 Stars · Excellent</span>
+      </div>
+      <div class="star-picker" id="starPicker" role="radiogroup" aria-label="Select star rating">
+        <button type="button" class="star-btn" data-value="1" title="1 Star - Poor" aria-label="1 star">
+          <svg class="star-icon" viewBox="0 0 24 24"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
+        </button>
+        <button type="button" class="star-btn" data-value="2" title="2 Stars - Fair" aria-label="2 stars">
+          <svg class="star-icon" viewBox="0 0 24 24"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
+        </button>
+        <button type="button" class="star-btn" data-value="3" title="3 Stars - Average" aria-label="3 stars">
+          <svg class="star-icon" viewBox="0 0 24 24"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
+        </button>
+        <button type="button" class="star-btn" data-value="4" title="4 Stars - Very Good" aria-label="4 stars">
+          <svg class="star-icon" viewBox="0 0 24 24"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
+        </button>
+        <button type="button" class="star-btn active" data-value="5" title="5 Stars - Excellent" aria-label="5 stars">
+          <svg class="star-icon" viewBox="0 0 24 24"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
+        </button>
+      </div>
+      <div class="rating-presets">
+        <span class="preset-tag" data-preset="1">1★ Min</span>
+        <span class="preset-tag" data-preset="3">3★ Neutral</span>
+        <span class="preset-tag active" data-preset="5">5★ Max</span>
+      </div>
+    </div>
+
     <!-- Main CTA -->
     <button class="btn-start idle" id="btnStart">
       ▶&nbsp;&nbsp;Start Auto-Fill
@@ -264,7 +405,7 @@
 
     <!-- Info bullets -->
     <ul class="info-list">
-      <li><span class="bullet">●</span> Selects ★★★★★ for every rating row</li>
+      <li><span class="bullet">●</span> <span id="infoRatingText">Selects ★★★★★ (5★) for every rating row</span></li>
       <li><span class="bullet">●</span> Skips suggestion text areas automatically</li>
       <li><span class="bullet">●</span> Loops through all pending subjects</li>
       <li><span class="bullet">●</span> Navigate to the VTOP Feedback page first</li>
